@@ -1,0 +1,391 @@
+// Function to clear sessionStorage variables for the current slide
+function clearSessionStorageVariables(slideId) {
+    sessionStorage.removeItem("StartTime_" + slideId);
+    sessionStorage.removeItem("EndTime_" + slideId);
+}
+
+// Function to get the current slide's identifier
+function getCurrentSlideId() {
+    var currentSlideNumber = window.cpAPIInterface.getVariableValue('Project.CurrentSlideNumber');
+    return currentSlideNumber;
+}
+
+// Function to get start or end time. Accepts true from slide enter or false from button call.
+function getTime(isStartTime, slideDelay) {
+    var currentSlideId = getCurrentSlideId();
+    var dateWithSecond = new Date();
+    var time = dateWithSecond.toLocaleTimeString(navigator.language, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    var storageKey = isStartTime ? "StartTime_" + currentSlideId : "EndTime_" + currentSlideId;
+
+    // Set time in session storage to either StartTime or EndTime to be used in timeEvaluation
+    sessionStorage.setItem(storageKey, time);
+
+    // Return time to Captivate (for testing purposes)
+    window.cpAPIInterface.setVariableValue(isStartTime ? "str_StartTime" : "str_EndTime", time);
+
+    // Call time evaluation with the slideDelay if getting end time
+    if (!isStartTime) {
+        timeEvaluation(slideDelay, currentSlideId);
+    }
+}
+
+// Function to evaluate time to specific seconds
+function timeEvaluation(slideDelay, slideId) {
+    // Retrieve stored start and end times from sessionStorage to work with
+    var startTime = sessionStorage.getItem("StartTime_" + slideId);
+    var endTime = sessionStorage.getItem("EndTime_" + slideId);
+
+    // Split time strings into hours, minutes, and seconds
+    var startTimeParts = startTime.split(":");
+    var endTimeParts = endTime.split(":");
+
+    // Calculate the total number of seconds for startTime and endTime
+    var totalSecondsStart = (+startTimeParts[0]) * 3600 + (+startTimeParts[1]) * 60 + (+startTimeParts[2]);
+    var totalSecondsEnd = (+endTimeParts[0]) * 3600 + (+endTimeParts[1]) * 60 + (+endTimeParts[2]);
+
+    // Calculate the difference in seconds
+    var differenceInSeconds = Math.abs(totalSecondsEnd - totalSecondsStart);
+
+    // Store the difference in seconds in sessionStorage
+    sessionStorage.setItem("DifferenceInSeconds_" + slideId, differenceInSeconds);
+
+    // Check if the difference is greater than the threshold
+    var requiredTimeMet = differenceInSeconds > slideDelay ? 1 : 0;
+
+    // Set Required_Time_Met into sessionStorage
+    sessionStorage.setItem("Required_Time_Met_" + slideId, requiredTimeMet);
+
+    // Store slide met information
+    var slideMetInfo = JSON.parse(sessionStorage.getItem("SlideMetInfo")) || {};
+    slideMetInfo[slideId] = requiredTimeMet;
+    sessionStorage.setItem("SlideMetInfo", JSON.stringify(slideMetInfo));
+
+    // Pass Required_Time_Met back to Captivate
+    window.cpAPIInterface.setVariableValue("Required_Time_Met", requiredTimeMet);
+
+    // Call showAlertWithStyle if Required_Time_Met is 0
+    if (requiredTimeMet === 0) {
+        showAlertWithStyle();
+    }
+}
+
+// Function to show alert with style
+function showAlertWithStyle() {
+    // Retrieve Required_Time_Met from sessionStorage
+    var requiredTimeMet = sessionStorage.getItem("Required_Time_Met_" + getCurrentSlideId());
+
+    // Check if Required_Time_Met is "0" (string comparison is necessary for sessionStorage values)
+    if (requiredTimeMet === "0") {
+        // Create alert container
+        var alertContainer = document.createElement('div');
+        alertContainer.style.position = 'fixed';
+        alertContainer.style.top = '50%';
+        alertContainer.style.left = '50%';
+        alertContainer.style.transform = 'translate(-50%, -50%)';
+        alertContainer.style.backgroundColor = '#f8d7da';
+        alertContainer.style.color = '#721c24';
+        alertContainer.style.padding = '20px';
+        alertContainer.style.border = '1px solid #f5c6cb';
+        alertContainer.style.borderRadius = '5px';
+        alertContainer.style.fontSize = '18px';
+        alertContainer.style.zIndex = '9999';
+
+        // Create alert message
+        var message = document.createElement('p');
+        message.textContent = 'Not enough time has passed on this page for effective learning.';
+        alertContainer.appendChild(message);
+
+        // Create close button
+        var closeButton = document.createElement('button');
+        closeButton.textContent = 'Close';
+        closeButton.style.backgroundColor = '#dc3545';
+        closeButton.style.color = 'white';
+        closeButton.style.border = 'none';
+        closeButton.style.padding = '10px 20px';
+        closeButton.style.borderRadius = '5px';
+        closeButton.style.cursor = 'pointer';
+        closeButton.style.fontSize = '16px';
+        closeButton.style.marginTop = '10px';
+        closeButton.onclick = function() {
+            document.body.removeChild(alertContainer);
+        };
+        alertContainer.appendChild(closeButton);
+
+        // Append alert container to the body
+        document.body.appendChild(alertContainer);
+    }
+}
+
+// Global variables to track validation status and continue button state
+var isValid = false;
+var isContinueButtonClicked = false;
+
+// Function to create and display the popup
+function showPopup() {
+    // Prevent multiple instances of the popup
+    if (document.getElementById('popup')) {
+        return;
+    }
+
+    // Create the popup container
+    const popup = document.createElement('div');
+    popup.style.position = 'fixed';
+    popup.style.left = '50%';
+    popup.style.top = '50%';
+    popup.style.transform = 'translate(-50%, -50%)';
+    popup.style.padding = '30px';
+    popup.style.backgroundColor = '#f8d7da';
+    popup.style.border = '1px solid #ccc';
+    popup.style.zIndex = '1000';
+    popup.style.width = '300px';
+    popup.style.boxSizing = 'border-box';
+    popup.style.borderRadius = '10px';
+    popup.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.1)';
+    popup.style.backgroundImage = 'url("images/logo.png")'; // Path to the logo image
+    popup.style.backgroundSize = 'cover';
+    popup.style.backgroundPosition = 'center';
+    popup.style.backgroundRepeat = 'no-repeat';
+    popup.id = 'popup';
+
+    // Get current slide identifier
+    var currentSlideId = getCurrentSlideId();
+
+    // Retrieve slide met information
+    var slideMetInfo = JSON.parse(sessionStorage.getItem("SlideMetInfo")) || {};
+    var requiredTimeMet = slideMetInfo[currentSlideId];
+
+    // If required time has been met for this slide, skip the time tracking logic
+    if (requiredTimeMet) {
+        window.cpAPIInterface.setVariableValue("Required_Time_Met", requiredTimeMet);
+    } else {
+        // Clear session variables for the current slide
+        clearSessionStorageVariables(currentSlideId);
+        // Run the get time with Start value
+        getTime(true);
+    }
+
+    // Create the alert message container
+    const alertMessage = document.createElement('div');
+    alertMessage.id = 'alertMessage';
+    alertMessage.style.color = 'red';
+    alertMessage.style.marginBottom = '15px';
+    alertMessage.style.display = 'none'; // Initially hidden
+
+    // Create the input fields and labels
+    const firstNameLabel = document.createElement('label');
+    firstNameLabel.innerText = 'First Name:';
+    firstNameLabel.style.display = 'block';
+    firstNameLabel.style.marginBottom = '5px';
+    const firstNameInput = document.createElement('input');
+    firstNameInput.type = 'text';
+    firstNameInput.id = 'firstName';
+    firstNameInput.style.width = '100%';
+    firstNameInput.style.marginBottom = '15px';
+    firstNameInput.style.padding = '8px';
+    firstNameInput.style.boxSizing = 'border-box';
+
+    const lastNameLabel = document.createElement('label');
+    lastNameLabel.innerText = 'Last Name:';
+    lastNameLabel.style.display = 'block';
+    lastNameLabel.style.marginBottom = '5px';
+    const lastNameInput = document.createElement('input');
+    lastNameInput.type = 'text';
+    lastNameInput.id = 'lastName';
+    lastNameInput.style.width = '100%';
+    lastNameInput.style.marginBottom = '15px';
+    lastNameInput.style.padding = '8px';
+    lastNameInput.style.boxSizing = 'border-box';
+
+    const employeeNumberLabel = document.createElement('label');
+    employeeNumberLabel.innerText = 'Employee Number:';
+    employeeNumberLabel.style.display = 'block';
+    employeeNumberLabel.style.marginBottom = '5px';
+    const employeeNumberInput = document.createElement('input');
+    employeeNumberInput.type = 'text';
+    employeeNumberInput.id = 'employeeNumber';
+    employeeNumberInput.style.width = '100%';
+    employeeNumberInput.style.marginBottom = '15px';
+    employeeNumberInput.style.padding = '8px';
+    employeeNumberInput.style.boxSizing = 'border-box';
+
+    // Create the submit button
+    const submitButton = document.createElement('button');
+    submitButton.innerText = 'Submit';
+    submitButton.onclick = function() {
+        validateAndStoreData(firstNameInput.value, lastNameInput.value, employeeNumberInput.value);
+    };
+    submitButton.style.display = 'block';
+    submitButton.style.width = '100%';
+    submitButton.style.padding = '10px';
+    submitButton.style.boxSizing = 'border-box';
+    submitButton.style.backgroundColor = '#007bff';
+    submitButton.style.color = 'white';
+    submitButton.style.border = 'none';
+    submitButton.style.borderRadius = '5px';
+    submitButton.style.cursor = 'pointer';
+
+    // Append elements to the popup
+    popup.appendChild(alertMessage);
+    popup.appendChild(firstNameLabel);
+    popup.appendChild(firstNameInput);
+    popup.appendChild(lastNameLabel);
+    popup.appendChild(lastNameInput);
+    popup.appendChild(employeeNumberLabel);
+    popup.appendChild(employeeNumberInput);
+    popup.appendChild(submitButton);
+
+    // Append the popup to the body
+    document.body.appendChild(popup);
+}
+
+// Function to validate input and store data in sessionStorage
+function validateAndStoreData(firstName, lastName, employeeNumber) {
+    const namePattern = /^[A-Za-z]+$/;
+    const numberPattern = /^[0-9]+$/;
+
+    const alertMessage = document.getElementById('alertMessage');
+    alertMessage.style.display = 'none'; // Hide alert initially
+
+    if (!namePattern.test(firstName)) {
+        alertMessage.innerText = 'First Name should contain only letters.';
+        alertMessage.style.display = 'block';
+        isValid = false;
+        setCpIsValidVariable();
+        return;
+    }
+    if (!namePattern.test(lastName)) {
+        alertMessage.innerText = 'Last Name should contain only letters.';
+        alertMessage.style.display = 'block';
+        isValid = false;
+        setCpIsValidVariable();
+        return;
+    }
+    if (!numberPattern.test(employeeNumber)) {
+        alertMessage.innerText = 'Employee Number should contain only numbers.';
+        alertMessage.style.display = 'block';
+        isValid = false;
+        setCpIsValidVariable();
+        return;
+    }
+
+    // Store data in sessionStorage
+    sessionStorage.setItem('lastName', lastName);
+    sessionStorage.setItem('firstName', firstName);
+    sessionStorage.setItem('employeeNumber', employeeNumber);
+
+    const fullName = firstName + ' ' + lastName;
+    sessionStorage.setItem('fullName', fullName);
+
+    isValid = true; // Set validation flag to true
+    setCpIsValidVariable();
+
+    // Close the popup
+    const popup = document.getElementById('popup');
+    if (popup) {
+        popup.remove();
+    }
+}
+
+// Function to set the Captivate variable based on validation status
+function setCpIsValidVariable() {
+    if (typeof window.cpAPIInterface !== 'undefined') {
+        window.cpAPIInterface.setVariableValue('validEntry', isValid ? '1' : '0');
+    }
+}
+
+// Function to show alert with custom message
+function showAlertWithCustomMessage(message) {
+    // Prevent multiple instances of the alert
+    if (document.getElementById('customAlert')) {
+        return;
+    }
+
+    // Create alert container
+    var alertContainer = document.createElement('div');
+    alertContainer.id = 'customAlert';
+    alertContainer.style.position = 'fixed';
+    alertContainer.style.top = '50%';
+    alertContainer.style.left = '50%';
+    alertContainer.style.transform = 'translate(-50%, -50%)';
+    alertContainer.style.backgroundColor = '#f8d7da';
+    alertContainer.style.color = '#721c24';
+    alertContainer.style.padding = '20px';
+    alertContainer.style.border = '1px solid #f5c6cb';
+    alertContainer.style.borderRadius = '5px';
+    alertContainer.style.fontSize = '18px';
+    alertContainer.style.zIndex = '9999';
+
+    // Create alert message
+    var customMessage = document.createElement('p');
+    customMessage.textContent = message;
+    alertContainer.appendChild(customMessage);
+
+    // Create close button
+    var closeButton = document.createElement('button');
+    closeButton.textContent = 'Close';
+    closeButton.style.backgroundColor = '#dc3545';
+    closeButton.style.color = 'white';
+    closeButton.style.border = 'none';
+    closeButton.style.padding = '10px 20px';
+    closeButton.style.borderRadius = '5px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.fontSize = '16px';
+    closeButton.style.marginTop = '10px';
+    closeButton.onclick = function() {
+        document.body.removeChild(alertContainer);
+        isContinueButtonClicked = false; // Reset the continue button click state
+    };
+    alertContainer.appendChild(closeButton);
+
+    // Append alert container to the body
+    document.body.appendChild(alertContainer);
+}
+
+
+// Function to handle continue button click
+function handleContinueButtonClick() {
+    if (isContinueButtonClicked) {
+        return; // Exit if the button has already been clicked
+    }
+
+    isContinueButtonClicked = true; // Set the flag to indicate the button has been clicked
+
+    if (!isValid) {
+        showAlertWithCustomMessage("Please fill out the form correctly.");
+        return;
+    }
+
+    // Proceed with the intended action if isValid is true
+    // Here you can place the logic that should occur after the validation is passed
+}
+
+// Function to initialize the Captivate event listener for the continue button
+function initCaptivateContinueButton() {
+    // call this function from Captivate when the button is clicked
+    // have an advanced action in Captivate that executes JavaScript
+    // and calls handleContinueButtonClick() when the continue button is clicked
+}
+
+// Ensure that Captivate calls this function to set up the button click handler
+initCaptivateContinueButton();
+
+// Get current slide identifier
+var currentSlideId = getCurrentSlideId();
+
+// Retrieve slide met information
+var slideMetInfo = JSON.parse(sessionStorage.getItem("SlideMetInfo")) || {};
+var requiredTimeMet = slideMetInfo[currentSlideId];
+
+// If required time has been met for this slide, skip the time tracking logic
+if (requiredTimeMet) {
+    window.cpAPIInterface.setVariableValue("Required_Time_Met", requiredTimeMet);
+} else {
+    // Clear session variables for the current slide
+    clearSessionStorageVariables(currentSlideId);
+    // Run the get time with Start value
+    getTime(true);
+}
+
+// Set slide delay to slide content size.
+var slideDelay= 20;
+getTime(false, slideDelay);
